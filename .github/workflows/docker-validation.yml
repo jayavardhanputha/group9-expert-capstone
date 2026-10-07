@@ -1,28 +1,28 @@
 name: Build and test API
 
 on:
-	push:
-		branches: [main]
-	pull_request:
-	workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
 
 permissions:
-	contents: read
+  contents: read
 
 jobs:
-	test-and-build:
-		runs-on: ubuntu-latest
-		steps:
-			- uses: actions/checkout@v4
-			- uses: actions/setup-python@v5
-				with:
-					python-version: "3.12"
-					cache: pip
-					cache-dependency-path: app/inventory-api/requirements.txt
-			- name: Install dependencies
-				run: python -m pip install -r app/inventory-api/requirements.txt pytest
-			- name: Run API tests
-				working-directory: app/inventory-api
-				run: python -m pytest -q
-			- name: Build container image
-				run: docker build -t inventory-api:${{ github.sha }} app/inventory-api
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/inventory-api/requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r app/inventory-api/requirements.txt pytest
+      - name: Run API tests
+        working-directory: app/inventory-api
+        run: python -m pytest -q
+      - name: Build container image
+        run: docker build -t inventory-api:${{ github.sha }} app/inventory-api
