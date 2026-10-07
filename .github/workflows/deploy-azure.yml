@@ -1,0 +1,140 @@
+name: Deploy to Azure (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Choose plan/apply or destroy
+        required: true
+        type: choice
+        options:
+          - apply
+          - destroy
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_VAR_api_image: ${{ vars.API_IMAGE }}
+  ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  plan:
+    if: ${{ inputs.action == 'apply' }}
+    runs-on: ubuntu-latest
+    environment: production-plan
+    defaults:
+      run:
+        working-directory: infrastructure/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: Verify required configuration
+        run: test -n "$TF_VAR_api_image"
+      - name: Terraform init
+        run: terraform init -backend-config="resource_group_name=${{ vars.TF_BACKEND_RESOURCE_GROUP }}" -backend-config="storage_account_name=${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}" -backend-config="container_name=${{ vars.TF_BACKEND_CONTAINER }}" -backend-config="key=capstone/terraform.tfstate" -backend-config="use_oidc=true" -backend-config="use_azuread_auth=true"
+      - name: Terraform plan
+        run: terraform plan -out=tfplan
+      - name: Upload reviewed plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: infrastructure/terraform/tfplan
+          retention-days: 1
+
+  apply:
+    if: ${{ inputs.action == 'apply' }}
+    needs: plan
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: infrastructure/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: Terraform init
+        run: terraform init -backend-config="resource_group_name=${{ vars.TF_BACKEND_RESOURCE_GROUP }}" -backend-config="storage_account_name=${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}" -backend-config="container_name=${{ vars.TF_BACKEND_CONTAINER }}" -backend-config="key=capstone/terraform.tfstate" -backend-config="use_oidc=true" -backend-config="use_azuread_auth=true"
+      - name: Download reviewed plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: infrastructure/terraform
+      - name: Terraform apply approved plan
+        run: terraform apply -auto-approve tfplan
+      - name: Show API endpoint
+        run: terraform output -raw api_url
+
+  destroy-plan:
+    if: ${{ inputs.action == 'destroy' }}
+    runs-on: ubuntu-latest
+    environment: production-plan
+    defaults:
+      run:
+        working-directory: infrastructure/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: Terraform init
+        run: terraform init -backend-config="resource_group_name=${{ vars.TF_BACKEND_RESOURCE_GROUP }}" -backend-config="storage_account_name=${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}" -backend-config="container_name=${{ vars.TF_BACKEND_CONTAINER }}" -backend-config="key=capstone/terraform.tfstate" -backend-config="use_oidc=true" -backend-config="use_azuread_auth=true"
+      - run: terraform plan -destroy -out=tfplan
+        name: Terraform destroy plan
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terraform-destroy-plan
+          path: infrastructure/terraform/tfplan
+          retention-days: 1
+
+  destroy:
+    if: ${{ inputs.action == 'destroy' }}
+    needs: destroy-plan
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: infrastructure/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: Terraform init
+        run: terraform init -backend-config="resource_group_name=${{ vars.TF_BACKEND_RESOURCE_GROUP }}" -backend-config="storage_account_name=${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}" -backend-config="container_name=${{ vars.TF_BACKEND_CONTAINER }}" -backend-config="key=capstone/terraform.tfstate" -backend-config="use_oidc=true" -backend-config="use_azuread_auth=true"
+      - name: Download reviewed destroy plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-destroy-plan
+          path: infrastructure/terraform
+      - name: Destroy approved demo resources
+        run: terraform apply -auto-approve tfplan

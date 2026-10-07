@@ -1,0 +1,31 @@
+name: Security checks
+
+on:
+	push:
+		branches: [main]
+	pull_request:
+	schedule:
+		- cron: "23 5 * * 1"
+	workflow_dispatch:
+
+permissions:
+	contents: read
+
+jobs:
+	python-and-secrets:
+		runs-on: ubuntu-latest
+		steps:
+			- uses: actions/checkout@v4
+			- uses: actions/setup-python@v5
+				with:
+					python-version: "3.12"
+			- name: Install security scanners
+				run: python -m pip install bandit pip-audit
+			- name: Scan Python source
+				run: bandit -r app/inventory-api -x app/inventory-api/tests
+			- name: Audit Python dependencies
+				run: pip-audit -r app/inventory-api/requirements.txt
+			- name: Scan repository for secrets
+				uses: gitleaks/gitleaks-action@v2
+				env:
+					GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

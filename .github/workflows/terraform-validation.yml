@@ -1,0 +1,34 @@
+name: Terraform validation
+
+on:
+	push:
+		branches: [main]
+		paths:
+			- "infrastructure/terraform/**"
+			- ".github/workflows/terraform-validation.yml"
+	pull_request:
+		paths:
+			- "infrastructure/terraform/**"
+			- ".github/workflows/terraform-validation.yml"
+	workflow_dispatch:
+
+permissions:
+	contents: read
+
+jobs:
+	terraform:
+		runs-on: ubuntu-latest
+		defaults:
+			run:
+				working-directory: infrastructure/terraform
+		steps:
+			- uses: actions/checkout@v4
+			- uses: hashicorp/setup-terraform@v3
+				with:
+					terraform_version: 1.9.8
+			- name: Check formatting
+				run: terraform fmt -check -recursive
+			- name: Initialize providers (no Azure credentials required)
+				run: terraform init -backend=false
+			- name: Validate configuration
+				run: terraform validate
