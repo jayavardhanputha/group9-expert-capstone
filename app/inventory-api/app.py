@@ -93,7 +93,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 		values, error = validate_payload(request.get_json(silent=True), creating=True)
 		if error:
 			return jsonify({"error": error}), 400
-		assert values is not None
+		if values is None:
+			return jsonify({"error": "Invalid request body."}), 400
 		now = datetime.now(timezone.utc).isoformat()
 		cursor = get_db().execute(
 			"INSERT INTO items (name, quantity, location, updated_at) VALUES (?, ?, ?, ?)",
@@ -115,18 +116,29 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 		values, error = validate_payload(request.get_json(silent=True), creating=False)
 		if error:
 			return jsonify({"error": error}), 400
-		assert values is not None
+		if values is None:
+			return jsonify({"error": "Invalid request body."}), 400
 		if not values:
 			return jsonify({"error": "Provide at least one field to update."}), 400
 		db = get_db()
 		existing = db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
 		if existing is None:
 			return jsonify({"error": "Item not found."}), 404
-		values["updated_at"] = datetime.now(timezone.utc).isoformat()
-		assignments = ", ".join(f"{field} = ?" for field in values)
+		updated = {
+			"name": existing["name"],
+			"quantity": existing["quantity"],
+			"location": existing["location"],
+		}
+		updated.update(values)
 		db.execute(
-			f"UPDATE items SET {assignments} WHERE id = ?",
-			(*values.values(), item_id),
+			"UPDATE items SET name = ?, quantity = ?, location = ?, updated_at = ? WHERE id = ?",
+			(
+				updated["name"],
+				updated["quantity"],
+				updated["location"],
+				datetime.now(timezone.utc).isoformat(),
+				item_id,
+			),
 		)
 		db.commit()
 		row = db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
